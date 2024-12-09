@@ -361,7 +361,6 @@ def infer_process(
     model_obj,
     vocoder,
     mel_spec_type=mel_spec_type,
-    progress=tqdm,
     target_rms=target_rms,
     cross_fade_duration=cross_fade_duration,
     nfe_step=nfe_step,
@@ -387,7 +386,6 @@ def infer_process(
         model_obj,
         vocoder,
         mel_spec_type=mel_spec_type,
-        progress=progress,
         target_rms=target_rms,
         cross_fade_duration=cross_fade_duration,
         nfe_step=nfe_step,
@@ -409,7 +407,6 @@ def infer_batch_process(
     model_obj,
     vocoder,
     mel_spec_type="vocos",
-    progress=tqdm,
     target_rms=0.1,
     cross_fade_duration=0.15,
     nfe_step=32,
@@ -436,7 +433,7 @@ def infer_batch_process(
 
     if len(ref_text[-1].encode("utf-8")) == 1:
         ref_text = ref_text + " "
-    for i, gen_text in enumerate(progress.tqdm(gen_text_batches)):
+    for i, gen_text in enumerate(tqdm(gen_text_batches)):
         # Prepare the text
         text_list = [ref_text + gen_text]
         final_text_list = convert_char_to_pinyin(text_list)
