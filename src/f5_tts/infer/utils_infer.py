@@ -362,7 +362,7 @@ def infer_process(
 
     try:
         print("Generating speech...")
-        generated_wave, sample_rate, spectrogram = model_obj.infer(
+        generated_wave, sample_rate, spectrogram = model_obj(
             ref_audio, ref_text, gen_text, speed=speed, cross_fade_duration=cross_fade_duration
         )
 
