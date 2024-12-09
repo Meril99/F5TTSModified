@@ -19,7 +19,7 @@ import matplotlib.pylab as plt
 import numpy as np
 import torch
 import torchaudio
-from tqdm import tqdm
+import tqdm
 from huggingface_hub import snapshot_download, hf_hub_download
 from pydub import AudioSegment, silence
 from transformers import pipeline
@@ -361,6 +361,7 @@ def infer_process(
     model_obj,
     vocoder,
     mel_spec_type=mel_spec_type,
+    progress=tqdm,
     target_rms=target_rms,
     cross_fade_duration=cross_fade_duration,
     nfe_step=nfe_step,
@@ -386,6 +387,7 @@ def infer_process(
         model_obj,
         vocoder,
         mel_spec_type=mel_spec_type,
+        progress=progress,
         target_rms=target_rms,
         cross_fade_duration=cross_fade_duration,
         nfe_step=nfe_step,
@@ -407,6 +409,7 @@ def infer_batch_process(
     model_obj,
     vocoder,
     mel_spec_type="vocos",
+    progress=tqdm,
     target_rms=0.1,
     cross_fade_duration=0.15,
     nfe_step=32,
@@ -433,7 +436,7 @@ def infer_batch_process(
 
     if len(ref_text[-1].encode("utf-8")) == 1:
         ref_text = ref_text + " "
-    for i, gen_text in enumerate(tqdm(gen_text_batches)):
+    for i, gen_text in enumerate(progress.tqdm(gen_text_batches)):
         # Prepare the text
         text_list = [ref_text + gen_text]
         final_text_list = convert_char_to_pinyin(text_list)
@@ -461,18 +464,21 @@ def infer_batch_process(
             generated = generated.to(torch.float32)
             generated = generated[:, ref_audio_len:, :]
             generated_mel_spec = generated.permute(0, 2, 1)
+
             if mel_spec_type == "vocos":
                 generated_wave = vocoder.decode(generated_mel_spec)
             elif mel_spec_type == "bigvgan":
                 generated_wave = vocoder(generated_mel_spec)
+            else:
+                raise ValueError(f"Unknown mel_spec_type: {mel_spec_type}")
+
             if rms < target_rms:
                 generated_wave = generated_wave * rms / target_rms
 
-            # wav -> numpy
-            generated_wave = generated_wave.squeeze().cpu().numpy()
-
             generated_waves.append(generated_wave)
             spectrograms.append(generated_mel_spec[0].cpu().numpy())
+
+
 
     # Combine all generated waves with cross-fading
     if cross_fade_duration <= 0:
