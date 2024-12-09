@@ -452,31 +452,37 @@ def infer_batch_process(
 
         # inference
         with torch.inference_mode():
-            generated, _ = model_obj.sample(
-                cond=audio,
-                text=final_text_list,
-                duration=duration,
-                steps=nfe_step,
-                cfg_strength=cfg_strength,
-                sway_sampling_coef=sway_sampling_coef,
-            )
+            try:
+                generated, _ = model_obj.sample(
+                    cond=audio,
+                    text=final_text_list,
+                    duration=duration,
+                    steps=nfe_step,
+                    cfg_strength=cfg_strength,
+                    sway_sampling_coef=sway_sampling_coef,
+                )
 
-            generated = generated.to(torch.float32)
-            generated = generated[:, ref_audio_len:, :]
-            generated_mel_spec = generated.permute(0, 2, 1)
+                generated = generated.to(torch.float32)
+                generated = generated[:, ref_audio_len:, :]
+                generated_mel_spec = generated.permute(0, 2, 1)
 
-            if mel_spec_type == "vocos":
-                generated_wave = vocoder.decode(generated_mel_spec)
-            elif mel_spec_type == "bigvgan":
-                generated_wave = vocoder(generated_mel_spec)
-            else:
-                raise ValueError(f"Unknown mel_spec_type: {mel_spec_type}")
+                if mel_spec_type == "vocos":
+                    generated_wave = vocoder.decode(generated_mel_spec)
+                elif mel_spec_type == "bigvgan":
+                    generated_wave = vocoder(generated_mel_spec)
+                else:
+                    raise ValueError(f"Unknown mel_spec_type: {mel_spec_type}")
 
-            if rms < target_rms:
-                generated_wave = generated_wave * rms / target_rms
+                if rms < target_rms:
+                    generated_wave = generated_wave * rms / target_rms
+                else:
+                    generated_wave = generated_wave
 
-            generated_waves.append(generated_wave)
-            spectrograms.append(generated_mel_spec[0].cpu().numpy())
+                generated_waves.append(generated_wave)
+                spectrograms.append(generated_mel_spec[0].cpu().numpy())
+            except Exception as e:
+                print(f"Error during batch inference: {e}")
+                continue  # Skip this batch if anything fails
 
 
 
