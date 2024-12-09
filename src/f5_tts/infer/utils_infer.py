@@ -138,11 +138,7 @@ asr_pipe = None
 def initialize_asr_pipeline(device: str = device, dtype=None):
     if dtype is None:
         dtype = (
-            torch.float16
-            if "cuda" in device
-            and torch.cuda.get_device_properties(device).major >= 6
-            and not torch.cuda.get_device_name().endswith("[ZLUDA]")
-            else torch.float32
+            torch.float16 if "cuda" in device and torch.cuda.get_device_properties(device).major >= 6 else torch.float32
         )
     global asr_pipe
     asr_pipe = pipeline(
@@ -175,11 +171,7 @@ def transcribe(ref_audio, language=None):
 def load_checkpoint(model, ckpt_path, device: str, dtype=None, use_ema=True):
     if dtype is None:
         dtype = (
-            torch.float16
-            if "cuda" in device
-            and torch.cuda.get_device_properties(device).major >= 6
-            and not torch.cuda.get_device_name().endswith("[ZLUDA]")
-            else torch.float32
+            torch.float16 if "cuda" in device and torch.cuda.get_device_properties(device).major >= 6 else torch.float32
         )
     model = model.to(dtype)
 
@@ -346,13 +338,12 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, device=
         else:
             ref_text += ". "
 
-    print("\nref_text  ", ref_text)
+    print("ref_text  ", ref_text)
 
     return ref_audio, ref_text
 
 
 # infer process: chunk text -> infer batches [i.e. infer_batch_process()]
-
 
 def infer_process(
     ref_audio,
@@ -360,44 +351,29 @@ def infer_process(
     gen_text,
     model_obj,
     vocoder,
-    mel_spec_type=mel_spec_type,
-    progress=tqdm,
-    target_rms=target_rms,
-    cross_fade_duration=cross_fade_duration,
-    nfe_step=nfe_step,
-    cfg_strength=cfg_strength,
-    sway_sampling_coef=sway_sampling_coef,
-    speed=speed,
-    fix_duration=fix_duration,
-    device=device,
+    cross_fade_duration=0.15,
+    speed=1.0,
+    progress=None,
 ):
-    # Split the input text into batches
-    audio, sr = torchaudio.load(ref_audio)
-    max_chars = int(len(ref_text.encode("utf-8")) / (audio.shape[-1] / sr) * (25 - audio.shape[-1] / sr))
-    gen_text_batches = chunk_text(gen_text, max_chars=max_chars)
-    for i, gen_text in enumerate(gen_text_batches):
-        print(f"gen_text {i}", gen_text)
-    print("\n")
+    print("Starting Inference Process...")  # DEBUG
+    print(f"Reference Audio Path: {ref_audio}")
+    print(f"Reference Text: {ref_text}")
+    print(f"Text to Generate: {gen_text}")
 
-    print(f"Generating audio in {len(gen_text_batches)} batches...")
-    return infer_batch_process(
-        (audio, sr),
-        ref_text,
-        gen_text_batches,
-        model_obj,
-        vocoder,
-        mel_spec_type=mel_spec_type,
-        progress=progress,
-        target_rms=target_rms,
-        cross_fade_duration=cross_fade_duration,
-        nfe_step=nfe_step,
-        cfg_strength=cfg_strength,
-        sway_sampling_coef=sway_sampling_coef,
-        speed=speed,
-        fix_duration=fix_duration,
-        device=device,
-    )
+    try:
+        print("Generating speech...")
+        generated_wave, sample_rate, spectrogram = model_obj.infer(
+            ref_audio, ref_text, gen_text, speed=speed, cross_fade_duration=cross_fade_duration
+        )
 
+        print("Model Inference Completed.")
+        print(f"Generated Waveform Length: {len(generated_wave)}")
+        print(f"Sample Rate: {sample_rate}")
+
+        return generated_wave, sample_rate, spectrogram
+    except Exception as e:
+        print(f"Error during inference: {e}")
+        raise e
 
 # infer batches
 
@@ -452,39 +428,30 @@ def infer_batch_process(
 
         # inference
         with torch.inference_mode():
-            try:
-                generated, _ = model_obj.sample(
-                    cond=audio,
-                    text=final_text_list,
-                    duration=duration,
-                    steps=nfe_step,
-                    cfg_strength=cfg_strength,
-                    sway_sampling_coef=sway_sampling_coef,
-                )
+            generated, _ = model_obj.sample(
+                cond=audio,
+                text=final_text_list,
+                duration=duration,
+                steps=nfe_step,
+                cfg_strength=cfg_strength,
+                sway_sampling_coef=sway_sampling_coef,
+            )
 
-                generated = generated.to(torch.float32)
-                generated = generated[:, ref_audio_len:, :]
-                generated_mel_spec = generated.permute(0, 2, 1)
+            generated = generated.to(torch.float32)
+            generated = generated[:, ref_audio_len:, :]
+            generated_mel_spec = generated.permute(0, 2, 1)
+            if mel_spec_type == "vocos":
+                generated_wave = vocoder.decode(generated_mel_spec)
+            elif mel_spec_type == "bigvgan":
+                generated_wave = vocoder(generated_mel_spec)
+            if rms < target_rms:
+                generated_wave = generated_wave * rms / target_rms
 
-                if mel_spec_type == "vocos":
-                    generated_wave = vocoder.decode(generated_mel_spec)
-                elif mel_spec_type == "bigvgan":
-                    generated_wave = vocoder(generated_mel_spec)
-                else:
-                    raise ValueError(f"Unknown mel_spec_type: {mel_spec_type}")
+            # wav -> numpy
+            generated_wave = generated_wave.squeeze().cpu().numpy()
 
-                if rms < target_rms:
-                    generated_wave = generated_wave * rms / target_rms
-                else:
-                    generated_wave = generated_wave
-
-                generated_waves.append(generated_wave)
-                spectrograms.append(generated_mel_spec[0].cpu().numpy())
-            except Exception as e:
-                print(f"Error during batch inference: {e}")
-                continue  # Skip this batch if anything fails
-
-
+            generated_waves.append(generated_wave)
+            spectrograms.append(generated_mel_spec[0].cpu().numpy())
 
     # Combine all generated waves with cross-fading
     if cross_fade_duration <= 0:
