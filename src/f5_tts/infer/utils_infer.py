@@ -19,7 +19,7 @@ import matplotlib.pylab as plt
 import numpy as np
 import torch
 import torchaudio
-import tqdm
+from tqdm import tqdm
 from huggingface_hub import snapshot_download, hf_hub_download
 from pydub import AudioSegment, silence
 from transformers import pipeline
